@@ -40,4 +40,61 @@ class OrderServiceTest {
         // MOCK VERIFICATION
         verify(paymentService).pay(200.0);
     }
+
+    @Test
+    void shouldReturnProductNotFound() {
+
+        // STUB
+        when(productRepository.findById("P99"))
+                .thenReturn(null);
+
+        // ACT
+        String result =
+                orderService.placeOrder("P99", 2);
+
+        // ASSERT
+        assertEquals("Product not found", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService, never()).pay(anyDouble());
+    }
+
+    @Test
+    void shouldReturnInsufficientStock() {
+
+        // STUB
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 1));
+
+        // ACT
+        String result =
+                orderService.placeOrder("P01", 2);
+
+        // ASSERT
+        assertEquals("Invalid quantity or insufficient stock", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService, never()).pay(anyDouble());
+    }
+
+    @Test
+    void shouldReturnPaymentFailed() {
+
+        // STUB
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 10));
+
+        when(paymentService.pay(200.0))
+                .thenReturn(false);
+
+        // ACT
+        String result =
+                orderService.placeOrder("P01", 2);
+
+        // ASSERT
+        assertEquals("Payment failed", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService).pay(200.0);
+    }
 }
