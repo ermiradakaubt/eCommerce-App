@@ -40,4 +40,139 @@ class OrderServiceTest {
         // MOCK VERIFICATION
         verify(paymentService).pay(200.0);
     }
+
+    @Test
+    void shouldReturnProductNotFoundWhenProductDoesNotExist() {
+
+        // STUB
+        when(productRepository.findById("P99"))
+                .thenReturn(null);
+
+        // ACT
+        String result =
+                orderService.placeOrder("P99", 2);
+
+        // ASSERT
+        assertEquals("Product not found", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService, never()).pay(anyDouble());
+    }
+
+    @Test
+    void shouldRejectOrderWhenQuantityIsZero() {
+
+        // STUB
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 10));
+
+        // ACT
+        String result =
+                orderService.placeOrder("P01", 0);
+
+        // ASSERT
+        assertEquals("Invalid quantity or insufficient stock", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService, never()).pay(anyDouble());
+    }
+
+    @Test
+    void shouldRejectOrderWhenQuantityIsNegative() {
+
+        // STUB
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 10));
+
+        // ACT
+        String result =
+                orderService.placeOrder("P01", -1);
+
+        // ASSERT
+        assertEquals("Invalid quantity or insufficient stock", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService, never()).pay(anyDouble());
+    }
+
+    @Test
+    void shouldRejectOrderWhenQuantityExceedsStock() {
+
+        // STUB
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 10));
+
+        // ACT (stock is 10, so 11 is one above the boundary)
+        String result =
+                orderService.placeOrder("P01", 11);
+
+        // ASSERT
+        assertEquals("Invalid quantity or insufficient stock", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService, never()).pay(anyDouble());
+    }
+
+    @Test
+    void shouldConfirmOrderWhenQuantityEqualsStock() {
+
+        // STUB (stock is 10, so 10 is exactly on the boundary)
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 10));
+
+        when(paymentService.pay(1000.0))
+                .thenReturn(true);
+
+        // ACT
+        String result =
+                orderService.placeOrder("P01", 10);
+
+        // ASSERT
+        assertEquals("Order confirmed", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService).pay(1000.0);
+    }
+
+    @Test
+    void shouldReturnPaymentFailedWhenPaymentIsDeclined() {
+
+        // STUB
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 10));
+
+        when(paymentService.pay(200.0))
+                .thenReturn(false);
+
+        // ACT
+        String result =
+                orderService.placeOrder("P01", 2);
+
+        // ASSERT
+        assertEquals("Payment failed", result);
+
+        // MOCK VERIFICATION
+        verify(paymentService).pay(200.0);
+    }
+
+    @Test
+    void shouldLookUpTheRequestedProductExactlyOnce() {
+
+        // STUB
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 10));
+
+        when(paymentService.pay(100.0))
+                .thenReturn(true);
+
+        // ACT
+        String result =
+                orderService.placeOrder("P01", 1);
+
+        // ASSERT
+        assertEquals("Order confirmed", result);
+
+        // MOCK VERIFICATION
+        verify(productRepository, times(1)).findById("P01");
+    }
 }
