@@ -40,4 +40,37 @@ class OrderServiceTest {
         // MOCK VERIFICATION
         verify(paymentService).pay(200.0);
     }
+
+    @Test
+    void shouldRejectOrderWhenProductDoesNotExist() {
+        when(productRepository.findById("P99")).thenReturn(null);
+
+        String result = orderService.placeOrder("P99", 1);
+
+        assertEquals("Product not found", result);
+        verifyNoInteractions(paymentService);
+    }
+
+    @Test
+    void shouldRejectOrderWhenQuantityExceedsStock() {
+        when(productRepository.findById("P02"))
+                .thenReturn(new Product("P02", 25, 3));
+
+        String result = orderService.placeOrder("P02", 4);
+
+        assertEquals("Invalid quantity or insufficient stock", result);
+        verifyNoInteractions(paymentService);
+    }
+
+    @Test
+    void shouldReportFailureWhenPaymentIsDeclined() {
+        when(productRepository.findById("P03"))
+                .thenReturn(new Product("P03", 12.50, 5));
+        when(paymentService.pay(37.50)).thenReturn(false);
+
+        String result = orderService.placeOrder("P03", 3);
+
+        assertEquals("Payment failed", result);
+        verify(paymentService).pay(37.50);
+    }
 }
