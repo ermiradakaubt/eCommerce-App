@@ -1,7 +1,7 @@
 public class OrderService {
 
-    private ProductRepository productRepository;
-    private PaymentService paymentService;
+    private final ProductRepository productRepository;
+    private final PaymentService paymentService;
 
     public OrderService(
             ProductRepository productRepository,
@@ -13,8 +13,7 @@ public class OrderService {
 
     public String placeOrder(String productId, int quantity) {
 
-        Product product =
-                productRepository.findById(productId);
+        Product product = productRepository.findById(productId);
 
         if (product == null) {
             return "Product not found";
