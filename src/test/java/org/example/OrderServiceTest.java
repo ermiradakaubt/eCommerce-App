@@ -1,150 +1,98 @@
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
-import org.junit.jupiter.api.*;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
-class OrderServiceTest_2 {
+class OrderServiceTest {
+
+    private ProductRepository productRepository;
+
+    private PaymentService paymentService;
 
     private OrderService orderService;
 
-    private OrderRepository orderRepository;
-    private PaymentGateway paymentGateway;
-    private InventoryService inventoryService;
-    private EmailService emailService;
-
-    private Order order;
-
     @BeforeEach
-    void setup() {
-
-        orderRepository = mock(OrderRepository.class);
-        paymentGateway = mock(PaymentGateway.class);
-        inventoryService = mock(InventoryService.class);
-        emailService = mock(EmailService.class);
-
-        orderService = new OrderService(
-            orderRepository,
-            paymentGateway,
-            inventoryService,
-            emailService
-        );
-
-        order = new Order("ORD-100", "P01", 2, 50.0);
+    void setUp() {
+        productRepository = mock(ProductRepository.class);
+        paymentService = mock(PaymentService.class);
+        orderService = new OrderService(productRepository, paymentService);
     }
 
     @Test
-    void testEverything() {
-
+    void shouldConfirmOrderSuccessfully() {
         // Arrange
-        when(inventoryService.isAvailable("P01"))
-            .thenReturn(true);
-
-        when(paymentGateway.processPayment(100.0))
-            .thenReturn(true);
-
-        when(orderRepository.save(any(Order.class)))
-            .thenReturn(order);
+        when(productRepository.findById("P01"))
+                .thenReturn(new Product("P01", 100, 10));
+        when(paymentService.pay(200.0)).thenReturn(true);
 
         // Act
-        Order result = orderService.placeOrder(order);
+        String result = orderService.placeOrder("P01", 2);
 
         // Assert
-        assertNotNull(result);
-        assertEquals("ORD-100", result.getId());
-        assertEquals(100.0, result.getTotal());
-        assertTrue(result.isPaid());
-
-        verify(inventoryService).isAvailable("P01");
-        verify(paymentGateway).processPayment(100.0);
-        verify(orderRepository).save(any(Order.class));
-        verify(emailService).sendConfirmation("ORD-100");
-
-        // Additional scenarios
-        order.setQuantity(-1);
-
-        try {
-            orderService.placeOrder(order);
-        } catch (Exception e) {
-            System.out.println("Error occurred");
-        }
-
-        assertTrue(true);
-
-        order.setQuantity(0);
-
-        try {
-            orderService.placeOrder(order);
-        } catch (Exception e) {
-            // Ignore
-        }
-
-        assertNotNull(order);
-
-        // Test another scenario
-        when(inventoryService.isAvailable("P01"))
-            .thenReturn(false);
-
-        Order secondResult = orderService.placeOrder(order);
-
-        assertNull(secondResult);
-
-        verify(inventoryService, times(2))
-            .isAvailable("P01");
-
-        // Check internal implementation
-        verify(paymentGateway, times(1))
-            .processPayment(100.0);
+        assertEquals("Order confirmed", result);
+        verify(paymentService).pay(200.0);
     }
 
     @Test
-    void testPaymentFailure() {
+    void shouldRejectOrderWhenProductDoesNotExist() {
+        // Arrange
+        when(productRepository.findById("P99")).thenReturn(null);
 
-        when(inventoryService.isAvailable("P01"))
-            .thenReturn(true);
+        // Act
+        String result = orderService.placeOrder("P99", 1);
 
-        when(paymentGateway.processPayment(100.0))
-            .thenReturn(false);
-
-        try {
-            orderService.placeOrder(order);
-        } catch (Exception e) {
-            // Ignore exception
-        }
-
-        assertTrue(true);
+        // Assert
+        assertEquals("Product not found", result);
+        verifyNoInteractions(paymentService);
     }
 
     @Test
-    void testOrderStatus() {
+    void shouldRejectOrderWhenQuantityExceedsStock() {
+        // Arrange
+        when(productRepository.findById("P02"))
+                .thenReturn(new Product("P02", 25, 3));
 
-        order.setStatus("PAID");
+        // Act
+        String result = orderService.placeOrder("P02", 4);
 
-        assertEquals("PAID", order.getStatus());
+        // Assert
+        assertEquals("Invalid quantity or insufficient stock", result);
+        verifyNoInteractions(paymentService);
+    }
 
-        order.setStatus("SHIPPED");
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1})
+    void shouldRejectOrderWhenQuantityIsNotPositive(int quantity) {
+        // Arrange
+        when(productRepository.findById("P02"))
+                .thenReturn(new Product("P02", 25, 3));
 
-        assertEquals("SHIPPED", order.getStatus());
+        // Act
+        String result = orderService.placeOrder("P02", quantity);
 
-        order.setStatus("DELIVERED");
-
-        assertEquals("DELIVERED", order.getStatus());
+        // Assert
+        assertEquals("Invalid quantity or insufficient stock", result);
+        verifyNoInteractions(paymentService);
     }
 
     @Test
-    void testOrderWithCurrentUser() {
+    void shouldReportFailureWhenPaymentIsDeclined() {
+        // Arrange
+        when(productRepository.findById("P03"))
+                .thenReturn(new Product("P03", 12.50, 5));
+        when(paymentService.pay(37.50)).thenReturn(false);
 
-        String username = System.getProperty("user.name");
+        // Act
+        String result = orderService.placeOrder("P03", 3);
 
-        assertEquals("student", username);
-    }
-
-    @Test
-    void testOrderCreation() {
-
-        Order result = orderService.createOrder(order);
-
-        assertNotNull(result);
-        assertTrue(true);
-        assertEquals("ORD-100", result.getId());
+        // Assert
+        assertEquals("Payment failed", result);
+        verify(paymentService).pay(37.50);
     }
 }
