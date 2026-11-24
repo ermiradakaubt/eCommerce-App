@@ -1,150 +1,164 @@
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import org.junit.jupiter.api.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-class OrderServiceTest_2 {
+/**
+ * Testet për OrderService, të organizuara sipas Arrange-Act-Assert.
+ *
+ * Test smells të larguara nga versioni origjinal:
+ *  - Eager Test: "testEverything" testonte 4 skenarë njëherësh → u nda në teste të fokusuara.
+ *  - Meaningless Assertions: assertTrue(true), assertNotNull(order) → u zëvendësuan me pohime reale.
+ *  - Exception Swallowing: try/catch bosh + System.out.println → assertThrows.
+ *  - Mutable Shared Fixture: "order" ndryshohej mes skenarëve → porosi e re për çdo test.
+ *  - Testing Implementation: verify(times(2)) mbi thirrje të brendshme → u hoq.
+ *  - Mystery Guest: varësi nga System.getProperty("user.name") → testi u hoq.
+ *  - Testing Getters/Setters: testOrderStatus nuk testonte OrderService → u hoq.
+ *  - Missing Stub: createOrder pa stub për save() → u shtua stub-i.
+ *  - Poor Naming & Magic Numbers: emra si "testEverything", vlera si 100.0 → emra përshkrues + konstante.
+ */
+@ExtendWith(MockitoExtension.class)
+@DisplayName("OrderService")
+class OrderServiceTest {
 
-    private OrderService orderService;
+    private static final String ORDER_ID = "ORD-100";
+    private static final String PRODUCT_ID = "P01";
+    private static final int QUANTITY = 2;
+    private static final double UNIT_PRICE = 50.0;
+    private static final double EXPECTED_TOTAL = QUANTITY * UNIT_PRICE;
 
+    @Mock
     private OrderRepository orderRepository;
+
+    @Mock
     private PaymentGateway paymentGateway;
+
+    @Mock
     private InventoryService inventoryService;
+
+    @Mock
     private EmailService emailService;
 
-    private Order order;
-
-    @BeforeEach
-    void setup() {
-
-        orderRepository = mock(OrderRepository.class);
-        paymentGateway = mock(PaymentGateway.class);
-        inventoryService = mock(InventoryService.class);
-        emailService = mock(EmailService.class);
-
-        orderService = new OrderService(
-            orderRepository,
-            paymentGateway,
-            inventoryService,
-            emailService
-        );
-
-        order = new Order("ORD-100", "P01", 2, 50.0);
-    }
+    @InjectMocks
+    private OrderService orderService;
 
     @Test
-    void testEverything() {
-
+    @DisplayName("Porosia e vlefshme kthehet e paguar me totalin e saktë")
+    void placeOrder_validOrder_returnsPaidOrderWithCorrectTotal() {
         // Arrange
-        when(inventoryService.isAvailable("P01"))
-            .thenReturn(true);
-
-        when(paymentGateway.processPayment(100.0))
-            .thenReturn(true);
-
-        when(orderRepository.save(any(Order.class)))
-            .thenReturn(order);
+        Order order = orderWithQuantity(QUANTITY);
+        givenProductInStockAndPaymentAccepted(order);
 
         // Act
         Order result = orderService.placeOrder(order);
 
         // Assert
-        assertNotNull(result);
-        assertEquals("ORD-100", result.getId());
-        assertEquals(100.0, result.getTotal());
-        assertTrue(result.isPaid());
-
-        verify(inventoryService).isAvailable("P01");
-        verify(paymentGateway).processPayment(100.0);
-        verify(orderRepository).save(any(Order.class));
-        verify(emailService).sendConfirmation("ORD-100");
-
-        // Additional scenarios
-        order.setQuantity(-1);
-
-        try {
-            orderService.placeOrder(order);
-        } catch (Exception e) {
-            System.out.println("Error occurred");
-        }
-
-        assertTrue(true);
-
-        order.setQuantity(0);
-
-        try {
-            orderService.placeOrder(order);
-        } catch (Exception e) {
-            // Ignore
-        }
-
-        assertNotNull(order);
-
-        // Test another scenario
-        when(inventoryService.isAvailable("P01"))
-            .thenReturn(false);
-
-        Order secondResult = orderService.placeOrder(order);
-
-        assertNull(secondResult);
-
-        verify(inventoryService, times(2))
-            .isAvailable("P01");
-
-        // Check internal implementation
-        verify(paymentGateway, times(1))
-            .processPayment(100.0);
+        assertAll(
+                () -> assertEquals(ORDER_ID, result.getId()),
+                () -> assertEquals(EXPECTED_TOTAL, result.getTotal()),
+                () -> assertTrue(result.isPaid())
+        );
     }
 
     @Test
-    void testPaymentFailure() {
+    @DisplayName("Porosia e vlefshme dërgon email konfirmimi")
+    void placeOrder_validOrder_sendsConfirmationEmail() {
+        // Arrange
+        Order order = orderWithQuantity(QUANTITY);
+        givenProductInStockAndPaymentAccepted(order);
 
-        when(inventoryService.isAvailable("P01"))
-            .thenReturn(true);
+        // Act
+        orderService.placeOrder(order);
 
-        when(paymentGateway.processPayment(100.0))
-            .thenReturn(false);
+        // Assert
+        verify(emailService).sendConfirmation(ORDER_ID);
+    }
 
-        try {
-            orderService.placeOrder(order);
-        } catch (Exception e) {
-            // Ignore exception
-        }
+    @ParameterizedTest(name = "sasia = {0}")
+    @ValueSource(ints = {0, -1})
+    @DisplayName("Sasia jo-pozitive refuzohet dhe klienti nuk ngarkohet")
+    void placeOrder_nonPositiveQuantity_throwsAndDoesNotCharge(int invalidQuantity) {
+        // Arrange
+        Order order = orderWithQuantity(invalidQuantity);
 
-        assertTrue(true);
+        // Act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> orderService.placeOrder(order));
+
+        // Assert
+        assertEquals("Quantity must be positive", exception.getMessage());
+        // Kontrollojmë vetëm efektet e dukshme (pagesë, ruajtje, email), jo thirrjet e brendshme
+        verifyNoInteractions(paymentGateway, orderRepository, emailService);
     }
 
     @Test
-    void testOrderStatus() {
+    @DisplayName("Produkti pa stok kthen null dhe klienti nuk ngarkohet")
+    void placeOrder_productUnavailable_returnsNullAndDoesNotCharge() {
+        // Arrange
+        Order order = orderWithQuantity(QUANTITY);
+        when(inventoryService.isAvailable(PRODUCT_ID)).thenReturn(false);
 
-        order.setStatus("PAID");
+        // Act
+        Order result = orderService.placeOrder(order);
 
-        assertEquals("PAID", order.getStatus());
-
-        order.setStatus("SHIPPED");
-
-        assertEquals("SHIPPED", order.getStatus());
-
-        order.setStatus("DELIVERED");
-
-        assertEquals("DELIVERED", order.getStatus());
+        // Assert
+        assertNull(result);
+        verifyNoInteractions(paymentGateway, orderRepository, emailService);
     }
 
     @Test
-    void testOrderWithCurrentUser() {
+    @DisplayName("Pagesa e refuzuar hedh përjashtim; porosia nuk ruhet dhe email nuk dërgohet")
+    void placeOrder_paymentDeclined_throwsAndDoesNotSaveOrNotify() {
+        // Arrange
+        Order order = orderWithQuantity(QUANTITY);
+        when(inventoryService.isAvailable(PRODUCT_ID)).thenReturn(true);
+        when(paymentGateway.processPayment(EXPECTED_TOTAL)).thenReturn(false);
 
-        String username = System.getProperty("user.name");
+        // Act
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> orderService.placeOrder(order));
 
-        assertEquals("student", username);
+        // Assert
+        assertEquals("Payment failed", exception.getMessage());
+        assertFalse(order.isPaid());
+        verifyNoInteractions(orderRepository, emailService);
     }
 
     @Test
-    void testOrderCreation() {
+    @DisplayName("createOrder ruan porosinë pa e paguar")
+    void createOrder_savesOrderWithoutPayment() {
+        // Arrange
+        Order order = orderWithQuantity(QUANTITY);
+        when(orderRepository.save(order)).thenReturn(order);
 
+        // Act
         Order result = orderService.createOrder(order);
 
-        assertNotNull(result);
-        assertTrue(true);
-        assertEquals("ORD-100", result.getId());
+        // Assert
+        assertEquals(ORDER_ID, result.getId());
+        assertEquals(Order.Status.CREATED, result.getStatus());
+        verifyNoInteractions(paymentGateway);
+    }
+
+    // --- Helpers ---
+
+    // Porosi e re për çdo test → asnjë gjendje e ndarë mes skenarëve
+    private static Order orderWithQuantity(int quantity) {
+        return new Order(ORDER_ID, PRODUCT_ID, quantity, UNIT_PRICE);
+    }
+
+    private void givenProductInStockAndPaymentAccepted(Order order) {
+        when(inventoryService.isAvailable(PRODUCT_ID)).thenReturn(true);
+        when(paymentGateway.processPayment(EXPECTED_TOTAL)).thenReturn(true);
+        when(orderRepository.save(order)).thenReturn(order);
     }
 }

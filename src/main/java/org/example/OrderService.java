@@ -1,37 +1,53 @@
 public class OrderService {
 
-    private ProductRepository productRepository;
-    private PaymentService paymentService;
+    private final OrderRepository orderRepository;
+    private final PaymentGateway paymentGateway;
+    private final InventoryService inventoryService;
+    private final EmailService emailService;
 
     public OrderService(
-            ProductRepository productRepository,
-            PaymentService paymentService) {
+            OrderRepository orderRepository,
+            PaymentGateway paymentGateway,
+            InventoryService inventoryService,
+            EmailService emailService) {
 
-        this.productRepository = productRepository;
-        this.paymentService = paymentService;
+        this.orderRepository = orderRepository;
+        this.paymentGateway = paymentGateway;
+        this.inventoryService = inventoryService;
+        this.emailService = emailService;
     }
 
-    public String placeOrder(String productId, int quantity) {
+    /**
+     * Përpunon porosinë: validon sasinë, kontrollon stokun, kryen pagesën,
+     * ruan porosinë dhe dërgon email konfirmimi.
+     *
+     * @return porosia e ruajtur, ose null nëse produkti nuk është në stok
+     * @throws IllegalArgumentException nëse sasia nuk është pozitive
+     * @throws IllegalStateException nëse pagesa dështon
+     */
+    public Order placeOrder(Order order) {
 
-        Product product =
-                productRepository.findById(productId);
-
-        if (product == null) {
-            return "Product not found";
+        if (order.getQuantity() <= 0) {
+            throw new IllegalArgumentException("Quantity must be positive");
         }
 
-        if (quantity <= 0 || quantity > product.getStock()) {
-            return "Invalid quantity or insufficient stock";
+        if (!inventoryService.isAvailable(order.getProductId())) {
+            return null;
         }
 
-        double total = product.getPrice() * quantity;
-
-        boolean paid = paymentService.pay(total);
-
-        if (!paid) {
-            return "Payment failed";
+        if (!paymentGateway.processPayment(order.getTotal())) {
+            throw new IllegalStateException("Payment failed");
         }
 
-        return "Order confirmed";
+        order.markAsPaid();
+        Order saved = orderRepository.save(order);
+        emailService.sendConfirmation(saved.getId());
+
+        return saved;
+    }
+
+    /** Ruan porosinë pa e paguar (statusi mbetet CREATED). */
+    public Order createOrder(Order order) {
+        return orderRepository.save(order);
     }
 }
