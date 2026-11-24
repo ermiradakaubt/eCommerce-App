@@ -1,7 +1,7 @@
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -17,8 +17,12 @@ class OrderServiceTest {
     @Mock
     private PaymentService paymentService;
 
-    @InjectMocks
     private OrderService orderService;
+
+    @BeforeEach
+    void setUp() {
+        orderService = new OrderService(productRepository, paymentService);
+    }
 
     @Test
     void shouldConfirmOrderSuccessfully() {
